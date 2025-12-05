@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Loader2, Sparkles, Key } from 'lucide-react';
 import { getEmployees } from '../services/mockDb';
 import { cn } from '../utils';
 
@@ -15,6 +15,7 @@ export const AiAssistant: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null); // null = checking
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -24,6 +25,36 @@ export const AiAssistant: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    checkApiKey();
+  }, []);
+
+  const checkApiKey = async () => {
+    try {
+      if ((window as any).aistudio && await (window as any).aistudio.hasSelectedApiKey()) {
+        setHasApiKey(true);
+      } else {
+        setHasApiKey(false);
+      }
+    } catch (e) {
+      console.error("Error checking API key:", e);
+      setHasApiKey(false);
+    }
+  };
+
+  const handleSelectKey = async () => {
+    if ((window as any).aistudio) {
+      try {
+        await (window as any).aistudio.openSelectKey();
+        setHasApiKey(true);
+      } catch (e) {
+        console.error("Error selecting API key:", e);
+      }
+    } else {
+        alert("API Key selection is not supported in this environment.");
+    }
+  };
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -57,7 +88,7 @@ export const AiAssistant: React.FC = () => {
       6. Do not make up information.
       `;
 
-      // 2. Call Gemini API
+      // 2. Call Gemini API - create instance just before call to ensure fresh key
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const response = await ai.models.generateContent({
@@ -75,13 +106,45 @@ export const AiAssistant: React.FC = () => {
       const responseText = response.text || "I couldn't generate a response. Please try again.";
       setMessages(prev => [...prev, { role: 'model', text: responseText }]);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("AI Error:", error);
-      setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error connecting to the AI service. Please check your connection or API key." }]);
+      
+      if (error.message?.includes("Requested entity was not found") || error.toString().includes("404")) {
+          setMessages(prev => [...prev, { role: 'model', text: "It looks like the API key is invalid or expired. Please select a key again." }]);
+          setHasApiKey(false);
+      } else {
+          setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error connecting to the AI service. Please check your connection." }]);
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (hasApiKey === false) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
+        <div className="bg-indigo-50 p-4 rounded-full mb-4">
+          <Key className="h-8 w-8 text-indigo-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">API Key Required</h2>
+        <p className="text-gray-500 mb-6 max-w-md">
+          To use the AI HR Assistant, you need to select a Google Gemini API key. This feature is powered by the Gemini 2.5 Flash model.
+        </p>
+        <button
+          onClick={handleSelectKey}
+          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+        >
+          <Key className="h-4 w-4" />
+          Select API Key
+        </button>
+        <p className="text-xs text-gray-400 mt-4">
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="hover:underline">
+            Billing information
+          </a>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
