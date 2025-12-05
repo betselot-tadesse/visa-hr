@@ -30,7 +30,8 @@ export const EmployeeList: React.FC = () => {
 
   const filteredEmployees = employees.filter(emp => {
     const matchesSearch = emp.fullName.toLowerCase().includes(search.toLowerCase()) || 
-                          emp.passportNumber.toLowerCase().includes(search.toLowerCase());
+                          (emp.passportNumber && emp.passportNumber.toLowerCase().includes(search.toLowerCase())) ||
+                          emp.employeeId.toLowerCase().includes(search.toLowerCase());
     const matchesFilter = filter === 'ALL' || emp.status === filter;
     return matchesSearch && matchesFilter;
   });
@@ -54,8 +55,9 @@ export const EmployeeList: React.FC = () => {
 
   const handleExport = () => {
     const data = filteredEmployees.map(emp => ({
+      "Employee ID": emp.employeeId,
       "Full Name": emp.fullName,
-      "Passport Number": emp.passportNumber,
+      "Passport Number": emp.passportNumber || '',
       "Visa Type": emp.visaType,
       "Visa Issue Date": emp.visaIssueDate,
       "Visa Expiry Date": emp.visaExpiryDate,
@@ -101,7 +103,7 @@ export const EmployeeList: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input 
             type="text" 
-            placeholder="Search by name or passport..." 
+            placeholder="Search by name, ID or passport..." 
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
@@ -131,6 +133,7 @@ export const EmployeeList: React.FC = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID / Passport</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Visa Type</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Visa Exp</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Health Exp</th>
@@ -149,9 +152,14 @@ export const EmployeeList: React.FC = () => {
                   return (
                   <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col">
                         <span className="text-sm font-medium text-gray-900">{emp.fullName}</span>
-                        <span className="text-xs text-gray-500">PP: {emp.passportNumber}</span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-gray-700">{emp.employeeId}</span>
+                        {emp.passportNumber && (
+                             <span className="text-xs text-gray-500">PP: {emp.passportNumber}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{emp.visaType}</td>
@@ -185,7 +193,7 @@ export const EmployeeList: React.FC = () => {
                 )})
               ) : (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500 text-sm">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500 text-sm">
                     No employees found matching your criteria.
                   </td>
                 </tr>
@@ -214,6 +222,7 @@ export const EmployeeList: React.FC = () => {
 const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; onSave: () => void }> = ({ employee, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     fullName: employee?.fullName || '',
+    employeeId: employee?.employeeId || '',
     passportNumber: employee?.passportNumber || '',
     visaType: employee?.visaType || 'Employment',
     visaIssueDate: employee?.visaIssueDate || '',
@@ -256,17 +265,29 @@ const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; 
                 className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
+            
             <div className="col-span-1">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Passport No</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
               <input 
                 required
+                type="text" 
+                value={formData.employeeId}
+                onChange={e => setFormData({...formData, employeeId: e.target.value})}
+                className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="e.g. EMP001"
+              />
+            </div>
+            <div className="col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Passport No (Optional)</label>
+              <input 
                 type="text" 
                 value={formData.passportNumber}
                 onChange={e => setFormData({...formData, passportNumber: e.target.value})}
                 className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
-            <div className="col-span-1">
+
+            <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">Visa Type</label>
               <select 
                 value={formData.visaType}

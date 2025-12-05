@@ -69,7 +69,7 @@ export const AiAssistant: React.FC = () => {
       // 1. Get current data context
       const employees = getEmployees();
       const dataContext = employees.map(e => (
-        `- Name: ${e.fullName} | Passport: ${e.passportNumber} | Type: ${e.visaType} | Visa Exp: ${e.visaExpiryDate} | Health Exp: ${e.healthCardExpiryDate} | Labour Exp: ${e.labourCardExpiryDate} | Status: ${e.status}`
+        `- Name: ${e.fullName} | ID: ${e.employeeId} | Passport: ${e.passportNumber || 'N/A'} | Type: ${e.visaType} | Visa Exp: ${e.visaExpiryDate} | Health Exp: ${e.healthCardExpiryDate} | Labour Exp: ${e.labourCardExpiryDate} | Status: ${e.status}`
       )).join('\n');
 
       const systemInstruction = `You are an expert HR Assistant for "VisaFlow", a Visa Management System.

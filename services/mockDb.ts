@@ -24,6 +24,7 @@ const seedData = () => {
   const employees: Employee[] = [
     {
       id: uuidv4(),
+      employeeId: "EMP001",
       fullName: "Alice Johnson",
       passportNumber: "A12345678",
       visaType: "Employment",
@@ -37,6 +38,7 @@ const seedData = () => {
     },
     {
       id: uuidv4(),
+      employeeId: "EMP002",
       fullName: "Bob Smith",
       passportNumber: "B98765432",
       visaType: "Business",
@@ -50,6 +52,7 @@ const seedData = () => {
     },
     {
       id: uuidv4(),
+      employeeId: "EMP003",
       fullName: "Charlie Davis",
       passportNumber: "C11223344",
       visaType: "Tourist",
@@ -63,6 +66,7 @@ const seedData = () => {
     },
     {
       id: uuidv4(),
+      employeeId: "EMP004",
       fullName: "Diana Evans",
       passportNumber: "D55667788",
       visaType: "Employment",
@@ -162,6 +166,12 @@ export const getEmployee = (id: string): Employee | undefined => {
 
 export const createEmployee = (employee: Omit<Employee, 'id' | 'createdAt' | 'updatedAt' | 'status'>) => {
   const employees = getEmployees();
+  
+  // Check for duplicate employeeId if provided
+  if (employee.employeeId && employees.some(e => e.employeeId === employee.employeeId)) {
+      console.warn(`Duplicate Employee ID ${employee.employeeId} skipped/handled in UI layer.`);
+  }
+
   const newEmployee: Employee = {
     ...employee,
     id: uuidv4(),

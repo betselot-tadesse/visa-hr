@@ -6,9 +6,10 @@ export enum VisaStatus {
 }
 
 export interface Employee {
-  id: string;
+  id: string; // Internal UUID
+  employeeId: string; // Business Employee ID (e.g. EMP001)
   fullName: string;
-  passportNumber: string;
+  passportNumber?: string;
   visaType: string;
   visaIssueDate: string; // ISO Date string
   visaExpiryDate: string; // ISO Date string
