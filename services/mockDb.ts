@@ -1,5 +1,5 @@
 import { Employee, Notification, NotificationSeverity, VisaStatus } from '../types';
-import { calculateVisaStatus } from '../utils';
+import { calculateStatus, getAggregateStatus } from '../utils';
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, subDays, format } from 'date-fns';
 
@@ -7,30 +7,43 @@ const EMPLOYEES_KEY = 'visaflow_employees';
 const NOTIFICATIONS_KEY = 'visaflow_notifications';
 const LAST_CHECK_KEY = 'visaflow_last_check';
 
+// Helper to calculate employee aggregate status
+const computeEmployeeStatus = (e: Omit<Employee, 'status'>): VisaStatus => {
+    return getAggregateStatus(e.visaExpiryDate, e.healthCardExpiryDate, e.labourCardExpiryDate);
+};
+
 // Initial Seeder Data
 const seedData = () => {
   if (localStorage.getItem(EMPLOYEES_KEY)) return;
 
   const today = new Date();
+  
+  // Helper to make dates
+  const days = (d: number) => format(addDays(today, d), 'yyyy-MM-dd');
+
   const employees: Employee[] = [
     {
       id: uuidv4(),
       fullName: "Alice Johnson",
       passportNumber: "A12345678",
       visaType: "Employment",
-      visaIssueDate: format(subDays(today, 300), 'yyyy-MM-dd'),
-      visaExpiryDate: format(addDays(today, 120), 'yyyy-MM-dd'),
+      visaIssueDate: days(-300),
+      visaExpiryDate: days(120),
+      healthCardExpiryDate: days(100),
+      labourCardExpiryDate: days(90),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      status: VisaStatus.VALID
+      status: VisaStatus.VALID // will be recalculated
     },
     {
       id: uuidv4(),
       fullName: "Bob Smith",
       passportNumber: "B98765432",
       visaType: "Business",
-      visaIssueDate: format(subDays(today, 350), 'yyyy-MM-dd'),
-      visaExpiryDate: format(addDays(today, 25), 'yyyy-MM-dd'), // Warning
+      visaIssueDate: days(-350),
+      visaExpiryDate: days(25), // Warning
+      healthCardExpiryDate: days(60),
+      labourCardExpiryDate: days(60),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: VisaStatus.WARNING
@@ -40,8 +53,10 @@ const seedData = () => {
       fullName: "Charlie Davis",
       passportNumber: "C11223344",
       visaType: "Tourist",
-      visaIssueDate: format(subDays(today, 60), 'yyyy-MM-dd'),
-      visaExpiryDate: format(addDays(today, 5), 'yyyy-MM-dd'), // Critical
+      visaIssueDate: days(-60),
+      visaExpiryDate: days(5), // Critical
+      healthCardExpiryDate: days(40),
+      labourCardExpiryDate: days(40),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: VisaStatus.CRITICAL
@@ -51,15 +66,23 @@ const seedData = () => {
       fullName: "Diana Evans",
       passportNumber: "D55667788",
       visaType: "Employment",
-      visaIssueDate: format(subDays(today, 400), 'yyyy-MM-dd'),
-      visaExpiryDate: format(subDays(today, 2), 'yyyy-MM-dd'), // Expired
+      visaIssueDate: days(-400),
+      visaExpiryDate: days(60),
+      healthCardExpiryDate: days(-2), // Expired Health Card
+      labourCardExpiryDate: days(60),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: VisaStatus.EXPIRED
     }
   ];
 
-  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
+  // Recalculate all statuses before saving
+  const processedEmployees = employees.map(e => ({
+      ...e,
+      status: computeEmployeeStatus(e)
+  }));
+
+  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(processedEmployees));
   runNotificationCheck(); // Generate initial notifications
 };
 
@@ -68,46 +91,51 @@ export const runNotificationCheck = () => {
   const notifications = getNotifications();
   const newNotifications: Notification[] = [];
   
-  // Simple logic: If an employee is in a warning/critical/expired state, ensure a notification exists
-  // In a real app, we would track if a notification was sent for a specific status transition.
-  // Here, we'll just check if there is an unread notification for this user with the current severity.
-  
   employees.forEach(emp => {
-    const status = calculateVisaStatus(emp.visaExpiryDate);
-    if (status === VisaStatus.VALID) return;
+    // Check all 3 documents
+    const checks = [
+        { type: 'Visa', date: emp.visaExpiryDate },
+        { type: 'Health Card', date: emp.healthCardExpiryDate },
+        { type: 'Labour Card', date: emp.labourCardExpiryDate },
+    ];
 
-    let severity: NotificationSeverity;
-    let message: string;
+    checks.forEach(check => {
+        const status = calculateStatus(check.date);
+        if (status === VisaStatus.VALID) return;
 
-    if (status === VisaStatus.EXPIRED) {
-      severity = NotificationSeverity.EXPIRED;
-      message = `Visa for ${emp.fullName} has EXPIRED on ${emp.visaExpiryDate}.`;
-    } else if (status === VisaStatus.CRITICAL) {
-      severity = NotificationSeverity.CRITICAL;
-      message = `Visa for ${emp.fullName} expires in less than 7 days (${emp.visaExpiryDate}).`;
-    } else {
-      severity = NotificationSeverity.WARNING;
-      message = `Visa for ${emp.fullName} expires in less than 30 days (${emp.visaExpiryDate}).`;
-    }
+        let severity: NotificationSeverity;
+        let message: string;
 
-    // Check if we already have an active (unread) notification for this
-    const exists = notifications.some(n => 
-      n.employeeId === emp.id && 
-      n.severity === severity && 
-      !n.isRead
-    );
+        if (status === VisaStatus.EXPIRED) {
+          severity = NotificationSeverity.EXPIRED;
+          message = `${check.type} for ${emp.fullName} has EXPIRED on ${check.date}.`;
+        } else if (status === VisaStatus.CRITICAL) {
+          severity = NotificationSeverity.CRITICAL;
+          message = `${check.type} for ${emp.fullName} expires in < 7 days (${check.date}).`;
+        } else {
+          severity = NotificationSeverity.WARNING;
+          message = `${check.type} for ${emp.fullName} expires in < 30 days (${check.date}).`;
+        }
 
-    if (!exists) {
-      newNotifications.push({
-        id: uuidv4(),
-        employeeId: emp.id,
-        employeeName: emp.fullName,
-        severity,
-        message,
-        isRead: false,
-        createdAt: new Date().toISOString()
-      });
-    }
+        // Check duplicates: Same employee, same message (message contains doc type and date, effectively unique per incident)
+        const exists = notifications.some(n => 
+          n.employeeId === emp.id && 
+          n.message === message && 
+          !n.isRead
+        );
+
+        if (!exists) {
+          newNotifications.push({
+            id: uuidv4(),
+            employeeId: emp.id,
+            employeeName: emp.fullName,
+            severity,
+            message,
+            isRead: false,
+            createdAt: new Date().toISOString()
+          });
+        }
+    });
   });
 
   if (newNotifications.length > 0) {
@@ -124,7 +152,7 @@ export const getEmployees = (): Employee[] => {
   // Recalculate status on fetch to ensure freshness
   return employees.map(e => ({
     ...e,
-    status: calculateVisaStatus(e.visaExpiryDate)
+    status: computeEmployeeStatus(e)
   })).sort((a, b) => new Date(a.visaExpiryDate).getTime() - new Date(b.visaExpiryDate).getTime());
 };
 
@@ -139,8 +167,10 @@ export const createEmployee = (employee: Omit<Employee, 'id' | 'createdAt' | 'up
     id: uuidv4(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    status: calculateVisaStatus(employee.visaExpiryDate)
+    status: VisaStatus.VALID // temp
   };
+  newEmployee.status = computeEmployeeStatus(newEmployee);
+  
   employees.push(newEmployee);
   localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
   runNotificationCheck();
@@ -157,8 +187,8 @@ export const updateEmployee = (id: string, updates: Partial<Omit<Employee, 'id' 
     ...updates,
     updatedAt: new Date().toISOString()
   };
-  // Recalculate status just in case dates changed
-  updatedEmployee.status = calculateVisaStatus(updatedEmployee.visaExpiryDate);
+  
+  updatedEmployee.status = computeEmployeeStatus(updatedEmployee);
   
   employees[index] = updatedEmployee;
   localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(employees));
@@ -193,6 +223,15 @@ export const clearAllData = () => {
     localStorage.removeItem(EMPLOYEES_KEY);
     localStorage.removeItem(NOTIFICATIONS_KEY);
     seedData();
+}
+
+export const restoreFromBackup = (data: { employees?: Employee[], notifications?: Notification[] }) => {
+    if (data.employees) {
+        localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(data.employees));
+    }
+    if (data.notifications) {
+        localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(data.notifications));
+    }
 }
 
 // Initialize on load

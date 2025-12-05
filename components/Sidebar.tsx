@@ -8,7 +8,8 @@ import {
   Settings, 
   X,
   Plane,
-  LogOut
+  LogOut,
+  Bot
 } from 'lucide-react';
 import { cn } from '../utils';
 
@@ -25,6 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { name: 'Employees', icon: Users, path: '/employees' },
     { name: 'Import Excel', icon: Upload, path: '/import' },
     { name: 'Notifications', icon: Bell, path: '/notifications' },
+    { name: 'AI Assistant', icon: Bot, path: '/ai-assistant' },
     { name: 'Settings', icon: Settings, path: '/settings' },
   ];
 

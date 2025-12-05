@@ -3,16 +3,15 @@ import {
   Search, 
   Filter, 
   Plus, 
-  MoreVertical, 
   Trash2, 
   Edit2,
-  Download
+  FileSpreadsheet
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { getEmployees, deleteEmployee, createEmployee, updateEmployee } from '../services/mockDb';
 import { Employee, VisaStatus } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
-import { formatDisplayDate } from '../utils';
-import { v4 as uuidv4 } from 'uuid';
+import { formatDisplayDate, calculateStatus } from '../utils';
 
 export const EmployeeList: React.FC = () => {
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -53,20 +52,47 @@ export const EmployeeList: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const handleExport = () => {
+    const data = filteredEmployees.map(emp => ({
+      "Full Name": emp.fullName,
+      "Passport Number": emp.passportNumber,
+      "Visa Type": emp.visaType,
+      "Visa Issue Date": emp.visaIssueDate,
+      "Visa Expiry Date": emp.visaExpiryDate,
+      "Health Card Expiry": emp.healthCardExpiryDate,
+      "Labour Card Expiry": emp.labourCardExpiryDate,
+      "Overall Status": emp.status
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Employees");
+    XLSX.writeFile(wb, "VisaFlow_Employees.xlsx");
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Employees</h1>
-          <p className="text-gray-500 mt-1">Manage employee visa records</p>
+          <p className="text-gray-500 mt-1">Manage employee visa, health, and labour card records</p>
         </div>
-        <button 
-          onClick={handleAddNew}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Add Employee
-        </button>
+        <div className="flex gap-2">
+            <button 
+            onClick={handleExport}
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+            >
+            <FileSpreadsheet className="h-4 w-4" />
+            Export Excel
+            </button>
+            <button 
+            onClick={handleAddNew}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+            >
+            <Plus className="h-4 w-4" />
+            Add Employee
+            </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -106,15 +132,21 @@ export const EmployeeList: React.FC = () => {
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Visa Type</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Issue Date</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Expiry Date</th>
-                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Visa Exp</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Health Exp</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Labour Exp</th>
+                <th scope="col" className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Overall</th>
                 <th scope="col" className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredEmployees.length > 0 ? (
-                filteredEmployees.map((emp) => (
+                filteredEmployees.map((emp) => {
+                  const healthStatus = calculateStatus(emp.healthCardExpiryDate);
+                  const labourStatus = calculateStatus(emp.labourCardExpiryDate);
+                  const visaStatus = calculateStatus(emp.visaExpiryDate);
+
+                  return (
                   <tr key={emp.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-col">
@@ -123,8 +155,19 @@ export const EmployeeList: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{emp.visaType}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDisplayDate(emp.visaIssueDate)}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDisplayDate(emp.visaExpiryDate)}</td>
+                    
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${visaStatus !== VisaStatus.VALID ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                      {formatDisplayDate(emp.visaExpiryDate)}
+                    </td>
+                    
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${healthStatus !== VisaStatus.VALID ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                      {formatDisplayDate(emp.healthCardExpiryDate)}
+                    </td>
+
+                    <td className={`px-6 py-4 whitespace-nowrap text-sm ${labourStatus !== VisaStatus.VALID ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                      {formatDisplayDate(emp.labourCardExpiryDate)}
+                    </td>
+                    
                     <td className="px-6 py-4 whitespace-nowrap">
                       <StatusBadge status={emp.status} />
                     </td>
@@ -139,10 +182,10 @@ export const EmployeeList: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))
+                )})
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500 text-sm">
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500 text-sm">
                     No employees found matching your criteria.
                   </td>
                 </tr>
@@ -175,6 +218,8 @@ const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; 
     visaType: employee?.visaType || 'Employment',
     visaIssueDate: employee?.visaIssueDate || '',
     visaExpiryDate: employee?.visaExpiryDate || '',
+    healthCardExpiryDate: employee?.healthCardExpiryDate || '',
+    labourCardExpiryDate: employee?.labourCardExpiryDate || '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -188,7 +233,7 @@ const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-900">{employee ? 'Edit Employee' : 'New Employee'}</h3>
@@ -234,6 +279,9 @@ const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; 
                 <option value="Dependent">Dependent</option>
               </select>
             </div>
+            
+            {/* Visa Dates */}
+            <div className="col-span-2 text-xs font-semibold text-gray-500 uppercase mt-2">Visa Details</div>
             <div className="col-span-1">
               <label className="block text-sm font-medium text-gray-700 mb-1">Issue Date</label>
               <input 
@@ -254,6 +302,30 @@ const EmployeeModal: React.FC<{ employee: Employee | null; onClose: () => void; 
                 className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
+
+            {/* Other Document Dates */}
+            <div className="col-span-2 text-xs font-semibold text-gray-500 uppercase mt-2">Other Documents</div>
+            <div className="col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Health Card Exp</label>
+              <input 
+                required
+                type="date" 
+                value={formData.healthCardExpiryDate}
+                onChange={e => setFormData({...formData, healthCardExpiryDate: e.target.value})}
+                className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+            <div className="col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Labour Card Exp</label>
+              <input 
+                required
+                type="date" 
+                value={formData.labourCardExpiryDate}
+                onChange={e => setFormData({...formData, labourCardExpiryDate: e.target.value})}
+                className="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500"
+              />
+            </div>
+
           </div>
           <div className="pt-4 flex gap-3 justify-end">
             <button 

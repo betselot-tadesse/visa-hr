@@ -12,9 +12,11 @@ export interface Employee {
   visaType: string;
   visaIssueDate: string; // ISO Date string
   visaExpiryDate: string; // ISO Date string
+  healthCardExpiryDate: string; // ISO Date string
+  labourCardExpiryDate: string; // ISO Date string
   createdAt: string;
   updatedAt: string;
-  status: VisaStatus; // Computed field for convenience
+  status: VisaStatus; // Computed Aggregate field (Worst of all 3)
 }
 
 export enum NotificationSeverity {

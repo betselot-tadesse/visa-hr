@@ -7,7 +7,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const calculateVisaStatus = (expiryDateStr: string): VisaStatus => {
+export const calculateStatus = (expiryDateStr: string): VisaStatus => {
+  if (!expiryDateStr) return VisaStatus.VALID; // Fallback if missing
   const expiryDate = parseISO(expiryDateStr);
   const today = new Date();
   
@@ -17,6 +18,30 @@ export const calculateVisaStatus = (expiryDateStr: string): VisaStatus => {
   if (daysRemaining <= 7) return VisaStatus.CRITICAL;
   if (daysRemaining <= 30) return VisaStatus.WARNING;
   return VisaStatus.VALID;
+};
+
+// Returns the 'worst' status among the three provided
+export const getAggregateStatus = (
+  visaExpiry: string, 
+  healthExpiry: string, 
+  labourExpiry: string
+): VisaStatus => {
+  const s1 = calculateStatus(visaExpiry);
+  const s2 = calculateStatus(healthExpiry);
+  const s3 = calculateStatus(labourExpiry);
+
+  const severityWeight = {
+    [VisaStatus.EXPIRED]: 3,
+    [VisaStatus.CRITICAL]: 2,
+    [VisaStatus.WARNING]: 1,
+    [VisaStatus.VALID]: 0,
+  };
+
+  const statuses = [s1, s2, s3];
+  // Sort by severity descending
+  statuses.sort((a, b) => severityWeight[b] - severityWeight[a]);
+  
+  return statuses[0];
 };
 
 export const getStatusColor = (status: VisaStatus) => {
@@ -36,7 +61,10 @@ export const getStatusColor = (status: VisaStatus) => {
 
 export const formatDisplayDate = (isoDate: string) => {
   if (!isoDate) return '-';
-  return new Date(isoDate).toLocaleDateString('en-GB', {
+  const date = new Date(isoDate);
+  if (isNaN(date.getTime())) return '-';
+  
+  return date.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
     year: 'numeric'

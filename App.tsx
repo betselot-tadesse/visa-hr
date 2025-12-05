@@ -6,6 +6,7 @@ import { EmployeeList } from './pages/EmployeeList';
 import { ExcelImport } from './pages/ExcelImport';
 import { Notifications } from './pages/Notifications';
 import { Settings } from './pages/Settings';
+import { AiAssistant } from './pages/AiAssistant';
 
 const App: React.FC = () => {
   return (
@@ -16,6 +17,7 @@ const App: React.FC = () => {
           <Route path="/employees" element={<EmployeeList />} />
           <Route path="/import" element={<ExcelImport />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/ai-assistant" element={<AiAssistant />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

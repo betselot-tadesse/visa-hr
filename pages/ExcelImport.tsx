@@ -25,10 +25,16 @@ export const ExcelImport: React.FC = () => {
     reader.onload = (e) => {
       const data = new Uint8Array(e.target?.result as ArrayBuffer);
       const workbook = XLSX.read(data, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
-      setPreviewData(jsonData);
+      
+      // Iterate through ALL sheets to gather data
+      let allData: any[] = [];
+      workbook.SheetNames.forEach(sheetName => {
+          const worksheet = workbook.Sheets[sheetName];
+          const sheetData = XLSX.utils.sheet_to_json(worksheet);
+          allData = [...allData, ...sheetData];
+      });
+
+      setPreviewData(allData);
       setImportResult(null);
     };
     reader.readAsArrayBuffer(file);
@@ -61,16 +67,18 @@ export const ExcelImport: React.FC = () => {
         // Validation Logic
         const rowNum = index + 1;
         
-        // Expected columns: Full Name, Passport Number, Visa Type, Issue Date, Expiry Date
-        const fullName = row['Full Name'] || row['full_name'];
-        const passport = row['Passport Number'] || row['passport_number'];
-        const visaType = row['Visa Type'] || row['visa_type'];
-        // XLSX dates might be serial numbers or strings
-        let issueDateStr = row['Issue Date'] || row['issue_date'];
-        let expiryDateStr = row['Expiry Date'] || row['expiry_date'];
+        // Expected columns with variations
+        const fullName = row['Full Name'] || row['full_name'] || row['Name'];
+        const passport = row['Passport Number'] || row['passport_number'] || row['Passport'];
+        const visaType = row['Visa Type'] || row['visa_type'] || 'Employment';
+        
+        const visaIssue = row['Visa Issue Date'] || row['Issue Date'] || row['issue_date'];
+        const visaExpiry = row['Visa Expiry Date'] || row['Expiry Date'] || row['expiry_date'];
+        const healthExpiry = row['Health Card Expiry'] || row['health_expiry'] || row['Health Card'];
+        const labourExpiry = row['Labour Card Expiry'] || row['labour_expiry'] || row['Labour Card'];
 
-        if (!fullName || !passport || !issueDateStr || !expiryDateStr) {
-          errors.push({ row: rowNum, error: 'Missing required fields' });
+        if (!fullName || !passport || !visaIssue || !visaExpiry || !healthExpiry || !labourExpiry) {
+          errors.push({ row: rowNum, error: 'Missing required fields (ensure Visa, Health, and Labour dates are present)' });
           return;
         }
 
@@ -79,12 +87,10 @@ export const ExcelImport: React.FC = () => {
            return;
         }
 
-        // Simple date cleaning
-        // In production, use more robust parsing based on expected Excel format
-        // Assuming string YYYY-MM-DD for this demo or JS Date handling
         try {
-            // If it's excel serial date (number)
-            /* Note: Mock simplified for string dates in sample file */
+            // In a real app, robust date parsing is needed here.
+            // For now we assume the string format matches or is convertable
+            // If XLSX returns numbers (serial dates), we would convert them here.
         } catch (e) {
              errors.push({ row: rowNum, error: 'Invalid date format' });
              return;
@@ -93,9 +99,11 @@ export const ExcelImport: React.FC = () => {
         createEmployee({
             fullName,
             passportNumber: passport,
-            visaType: visaType || 'Employment',
-            visaIssueDate: String(issueDateStr), // Ensure string for mock
-            visaExpiryDate: String(expiryDateStr)
+            visaType,
+            visaIssueDate: String(visaIssue), 
+            visaExpiryDate: String(visaExpiry),
+            healthCardExpiryDate: String(healthExpiry),
+            labourCardExpiryDate: String(labourExpiry),
         });
         existingPassportNumbers.add(passport);
         inserted++;
@@ -111,7 +119,7 @@ export const ExcelImport: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Import Employees</h1>
-        <p className="text-gray-500 mt-1">Bulk upload visa records via Excel (.xlsx, .xls)</p>
+        <p className="text-gray-500 mt-1">Bulk upload records via Excel (.xlsx, .xls). All sheets in the file will be processed.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -145,7 +153,8 @@ export const ExcelImport: React.FC = () => {
                   Browse Files
                 </label>
                 <div className="mt-8 text-xs text-gray-400">
-                    <p>Required Columns: Full Name, Passport Number, Visa Type, Issue Date (YYYY-MM-DD), Expiry Date (YYYY-MM-DD)</p>
+                    <p>Required Columns: Full Name, Passport Number, Visa Type</p>
+                    <p>Dates (YYYY-MM-DD): Visa Issue Date, Visa Expiry Date, Health Card Expiry, Labour Card Expiry</p>
                 </div>
               </div>
             )}
@@ -247,6 +256,7 @@ export const ExcelImport: React.FC = () => {
                 <h3 className="font-semibold text-blue-900 mb-2">Instructions</h3>
                 <ul className="text-sm text-blue-800 space-y-2 list-disc list-inside">
                     <li>Upload an Excel file (.xlsx)</li>
+                    <li>Supports multiple sheets/tabs</li>
                     <li>First row must contain headers</li>
                     <li>Dates should be YYYY-MM-DD</li>
                     <li>Passport numbers must be unique</li>
