@@ -3,13 +3,14 @@ import { Upload, FileSpreadsheet, AlertCircle, CheckCircle, X } from 'lucide-rea
 import * as XLSX from 'xlsx';
 import { createEmployee, getEmployees } from '../services/mockDb';
 import { Employee, ImportResult } from '../types';
-import { format, isValid, addDays } from 'date-fns';
+import { format, isValid } from 'date-fns';
 
 export const ExcelImport: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [previewData, setPreviewData] = useState<any[]>([]);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -23,22 +24,62 @@ export const ExcelImport: React.FC = () => {
   const processFile = async (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const data = new Uint8Array(e.target?.result as ArrayBuffer);
-      const workbook = XLSX.read(data, { type: 'array' });
-      
-      // Iterate through ALL sheets to gather data
-      let allData: any[] = [];
-      workbook.SheetNames.forEach(sheetName => {
-          const worksheet = workbook.Sheets[sheetName];
-          // Use raw: false to get strings if needed, but raw: true is better for dates if they are serials
-          const sheetData = XLSX.utils.sheet_to_json(worksheet, { defval: "" }); 
-          allData = [...allData, ...sheetData];
-      });
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        let allData: any[] = [];
+        let detectedHeaders: string[] = [];
 
-      // Filter out completely empty rows
-      const cleanData = allData.filter(row => Object.values(row).some(val => val !== ""));
-      setPreviewData(cleanData);
-      setImportResult(null);
+        workbook.SheetNames.forEach(sheetName => {
+            const worksheet = workbook.Sheets[sheetName];
+            
+            // 1. Convert to Array of Arrays to find the header row
+            const aoa = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+            
+            if (aoa.length === 0) return;
+
+            // 2. Find the header row index
+            // Look for a row that contains "EMP ID" or "EMPLOYEE NAME"
+            let headerRowIndex = -1;
+            for (let i = 0; i < Math.min(20, aoa.length); i++) {
+                const rowStr = aoa[i].map(c => String(c).toLowerCase().trim()).join(' ');
+                if (rowStr.includes('emp id') || rowStr.includes('employee name') || rowStr.includes('designation')) {
+                    headerRowIndex = i;
+                    break;
+                }
+            }
+
+            // If no header found, assume row 0 if it has enough columns, else skip
+            if (headerRowIndex === -1) {
+                // If row 0 has at least 3 strings, try it
+                if (aoa[0].length >= 3) headerRowIndex = 0;
+                else return; // Skip this sheet
+            }
+
+            // 3. Parse using the identified header row
+            const sheetData = XLSX.utils.sheet_to_json(worksheet, { 
+                range: headerRowIndex,
+                defval: "" 
+            });
+
+            if (sheetData.length > 0) {
+                 detectedHeaders = Object.keys(sheetData[0] as object);
+            }
+            allData = [...allData, ...sheetData];
+        });
+
+        // Filter out completely empty rows
+        const cleanData = allData.filter(row => Object.values(row).some(val => val !== ""));
+        
+        setPreviewData(cleanData);
+        setImportResult(null);
+        setDebugInfo(detectedHeaders.length > 0 ? `Detected Columns: ${detectedHeaders.join(', ')}` : 'No columns detected');
+
+      } catch (err) {
+        console.error("Parse error", err);
+        setImportResult({ inserted: 0, updated: 0, errors: [{ row: 0, error: "Failed to parse Excel file. Ensure it is not corrupted." }] });
+      }
     };
     reader.readAsArrayBuffer(file);
   };
@@ -65,22 +106,20 @@ export const ExcelImport: React.FC = () => {
     
     // 1. Try exact or simple case-insensitive match on variations
     for (const v of variations) {
-        // Direct check
         if (row[v] !== undefined && row[v] !== "") return row[v];
         
-        // Case-insensitive check against keys
         const foundKey = rowKeys.find(k => k.toLowerCase().trim() === v.toLowerCase().trim());
         if (foundKey && row[foundKey] !== undefined && row[foundKey] !== "") return row[foundKey];
     }
 
-    // 2. Aggressive fuzzy match (remove all non-alphanumeric)
+    // 2. Aggressive fuzzy match
     const normalizedVariations = variations.map(v => v.toLowerCase().replace(/[^a-z0-9]/g, ''));
     
     for (const key of rowKeys) {
         const normalizedKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-        // Check if any variation is contained in the key or vice versa
         for (const nv of normalizedVariations) {
-            if (normalizedKey === nv || (normalizedKey.includes(nv) && normalizedKey.length < nv.length + 5)) {
+            // Match if normalized key contains the variation (e.g. "visaexpirydate" contains "visaexpiry")
+            if (normalizedKey === nv || (normalizedKey.includes(nv))) {
                  if (row[key] !== undefined && row[key] !== "") return row[key];
             }
         }
@@ -91,17 +130,28 @@ export const ExcelImport: React.FC = () => {
   const parseExcelDate = (val: any): string | null => {
     if (!val) return null;
 
-    // Handle Excel Serial Date (numbers like 45321)
+    // Handle Excel Serial Date
     if (typeof val === 'number') {
-        // Excel base date is Dec 30 1899 usually
         const date = new Date(Math.round((val - 25569) * 86400 * 1000));
         return isValid(date) ? format(date, 'yyyy-MM-dd') : null;
     }
 
     // Handle String Dates
     if (typeof val === 'string') {
-        // Try standard Date parse
-        const date = new Date(val);
+        const trimmed = val.trim();
+        
+        // 1. Try DD/MM/YYYY or DD-MM-YYYY (Common in UAE/India)
+        const dmyMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (dmyMatch) {
+            const day = parseInt(dmyMatch[1], 10);
+            const month = parseInt(dmyMatch[2], 10) - 1;
+            const year = parseInt(dmyMatch[3], 10);
+            const date = new Date(year, month, day);
+            if (isValid(date)) return format(date, 'yyyy-MM-dd');
+        }
+
+        // 2. Try YYYY-MM-DD
+        const date = new Date(trimmed);
         if (isValid(date)) return format(date, 'yyyy-MM-dd');
     }
 
@@ -110,7 +160,6 @@ export const ExcelImport: React.FC = () => {
 
   const runImport = () => {
     setIsProcessing(true);
-    // Simulate backend processing delay
     setTimeout(() => {
       let inserted = 0;
       let updated = 0; 
@@ -120,42 +169,30 @@ export const ExcelImport: React.FC = () => {
       previewData.forEach((row, index) => {
         const rowNum = index + 1;
         
-        // --- Mapping logic based on user's specific template ---
-        // S.No, EMP ID, EMPLOYEE NAME, DESIGNATION, DOJ(date), WORK LOCATION, VISA EXPIRY DATE, LABOUR CARD EXP DATE, HEALTH CARD EXP DATE
+        // Mappings based on user template
+        const fullName = findValue(row, 'EMPLOYEE NAME', 'Full Name', 'Name', 'Employee Name');
+        const empId = findValue(row, 'EMP ID', 'Employee ID', 'ID', 'Emp No');
+        const passport = findValue(row, 'Passport Number', 'Passport', 'Passport No', 'PP No'); // Optional
+        const visaType = findValue(row, 'DESIGNATION', 'Visa Type', 'Designation', 'Position', 'Role');
         
-        const fullName = findValue(row, 'EMPLOYEE NAME', 'Full Name', 'Name', 'Employee Name', 'full_name');
-        
-        // Map EMP ID to employeeId
-        const empId = findValue(row, 'EMP ID', 'Employee ID', 'ID', 'No.', 'emp_id');
-        
-        // Optional Passport Number if present
-        const passport = findValue(row, 'Passport Number', 'Passport', 'Passport No', 'PP No');
-        
-        // Map Designation to Visa Type
-        const visaType = findValue(row, 'DESIGNATION', 'Visa Type', 'Visa', 'Type', 'visa_type');
-        
-        // Map DOJ to Visa Issue Date
-        const visaIssue = parseExcelDate(findValue(row, 'DOJ(date)', 'DOJ', 'Visa Issue Date', 'Issue Date', 'Visa Issue', 'issue_date'));
-        
-        const visaExpiry = parseExcelDate(findValue(row, 'VISA EXPIRY DATE', 'Visa Expiry Date', 'Visa Expiry', 'Expiry Date', 'expiry_date'));
-        const healthExpiry = parseExcelDate(findValue(row, 'HEALTH CARD EXP DATE', 'Health Card Expiry', 'Health Card', 'Health Exp', 'Insurance Expiry'));
-        const labourExpiry = parseExcelDate(findValue(row, 'LABOUR CARD EXP DATE', 'Labour Card Expiry', 'Labour Card', 'Labour Exp', 'Work Permit Expiry'));
+        const visaIssue = parseExcelDate(findValue(row, 'DOJ(date)', 'DOJ', 'Date of Joining', 'Visa Issue', 'Issue Date'));
+        const visaExpiry = parseExcelDate(findValue(row, 'VISA EXPIRY DATE', 'Visa Expiry', 'Visa Exp', 'Expiry Date'));
+        const healthExpiry = parseExcelDate(findValue(row, 'HEALTH CARD EXP DATE', 'Health Card Expiry', 'Health Card', 'Insurance Exp'));
+        const labourExpiry = parseExcelDate(findValue(row, 'LABOUR CARD EXP DATE', 'Labour Card Expiry', 'Labour Card', 'Labour Exp'));
 
-        // Identify specific missing fields
         const missing = [];
         if (!fullName) missing.push("EMPLOYEE NAME");
         if (!empId) missing.push("EMP ID");
-        // Visa Type is optional in strict check, defaulting to Employment if missing, but helpful to warn
-        if (!visaIssue) missing.push("DOJ(date) / Issue Date");
+        // We will be lenient with dates to show better errors, but they are required for logic
+        if (!visaIssue) missing.push("DOJ(date)");
         if (!visaExpiry) missing.push("VISA EXPIRY DATE");
         if (!healthExpiry) missing.push("HEALTH CARD EXP DATE");
         if (!labourExpiry) missing.push("LABOUR CARD EXP DATE");
 
         if (missing.length > 0) {
-          // If EVERYTHING is missing, it's likely a blank/garbage row that survived filtering
+          // Ignore completely empty rows
           if (missing.length >= 5) return; 
-
-          errors.push({ row: rowNum, error: `Missing or invalid: ${missing.join(', ')}` });
+          errors.push({ row: rowNum, error: `Missing columns or invalid dates: ${missing.join(', ')}` });
           return;
         }
 
@@ -168,7 +205,7 @@ export const ExcelImport: React.FC = () => {
             fullName: String(fullName),
             employeeId: String(empId),
             passportNumber: passport ? String(passport) : undefined,
-            visaType: String(visaType || 'Employment'), // Default if missing
+            visaType: String(visaType || 'Employment'),
             visaIssueDate: visaIssue!,
             visaExpiryDate: visaExpiry!,
             healthCardExpiryDate: healthExpiry!,
@@ -188,7 +225,7 @@ export const ExcelImport: React.FC = () => {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Import Employees</h1>
-        <p className="text-gray-500 mt-1">Bulk upload records via Excel (.xlsx, .xls). All sheets in the file will be processed.</p>
+        <p className="text-gray-500 mt-1">Bulk upload records via Excel. The system will auto-detect the header row.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -221,10 +258,17 @@ export const ExcelImport: React.FC = () => {
                 >
                   Browse Files
                 </label>
-                <div className="mt-8 text-xs text-gray-400 text-left bg-gray-50 p-4 rounded-lg">
-                    <p className="font-semibold mb-1">Supported Template Columns:</p>
-                    <p>EMP ID, EMPLOYEE NAME, DESIGNATION</p>
-                    <p>DOJ(date), VISA EXPIRY DATE, LABOUR CARD EXP DATE, HEALTH CARD EXP DATE</p>
+                <div className="mt-8 text-xs text-gray-400 text-left bg-gray-50 p-4 rounded-lg w-full">
+                    <p className="font-semibold mb-1">Required Columns:</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                        <span>• EMP ID</span>
+                        <span>• EMPLOYEE NAME</span>
+                        <span>• DOJ(date)</span>
+                        <span>• DESIGNATION</span>
+                        <span>• VISA EXPIRY DATE</span>
+                        <span>• LABOUR CARD EXP DATE</span>
+                        <span>• HEALTH CARD EXP DATE</span>
+                    </div>
                 </div>
               </div>
             )}
@@ -276,12 +320,12 @@ export const ExcelImport: React.FC = () => {
                       ))}
                     </tbody>
                   </table>
-                  {previewData.length > 10 && (
-                      <div className="px-6 py-3 text-xs text-gray-400 text-center border-t border-gray-100 italic">
-                          Showing first 10 of {previewData.length} rows
-                      </div>
-                  )}
                 </div>
+                {debugInfo && (
+                    <div className="px-4 py-2 bg-gray-100 text-xs text-gray-500 border-t border-gray-200">
+                        {debugInfo}
+                    </div>
+                )}
               </div>
             )}
             
@@ -306,6 +350,9 @@ export const ExcelImport: React.FC = () => {
                     {importResult.errors.length > 0 && (
                         <div className="bg-red-50 border border-red-100 rounded-lg p-4">
                             <h4 className="text-sm font-semibold text-red-800 mb-2">Errors ({importResult.errors.length})</h4>
+                            <p className="text-xs text-red-600 mb-2 font-medium">
+                                {debugInfo}
+                            </p>
                             <div className="max-h-60 overflow-y-auto space-y-1">
                                 {importResult.errors.map((err, i) => (
                                     <div key={i} className="text-xs text-red-700 flex gap-2">
@@ -323,22 +370,20 @@ export const ExcelImport: React.FC = () => {
         {/* Helper Sidebar */}
         <div className="space-y-6">
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
-                <h3 className="font-semibold text-blue-900 mb-2">Instructions</h3>
+                <h3 className="font-semibold text-blue-900 mb-2">Smart Import</h3>
                 <ul className="text-sm text-blue-800 space-y-2 list-disc list-inside">
-                    <li>Upload an Excel file (.xlsx)</li>
-                    <li>First row must contain headers</li>
-                    <li>Supports <strong>EMP ID</strong>, <strong>EMPLOYEE NAME</strong>, <strong>DESIGNATION</strong></li>
-                    <li>Dates required: <strong>DOJ</strong>, <strong>VISA EXPIRY</strong>, <strong>LABOUR EXP</strong>, <strong>HEALTH EXP</strong></li>
+                    <li>We auto-detect the header row by looking for "EMP ID" or "EMPLOYEE NAME".</li>
+                    <li>Supports dates in <strong>DD/MM/YYYY</strong>, <strong>DD-MM-YYYY</strong>, or <strong>YYYY-MM-DD</strong> formats.</li>
+                    <li>Standardizes column names automatically.</li>
                 </ul>
             </div>
             
             <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
                 <h3 className="font-semibold text-gray-900 mb-4">Sample Template</h3>
-                <p className="text-sm text-gray-500 mb-4">Make sure your Excel columns match the required format.</p>
-                <button className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-                    <FileSpreadsheet className="h-4 w-4" />
-                    Download Template
-                </button>
+                <p className="text-sm text-gray-500 mb-4">Ensure your Excel file contains these key columns:</p>
+                <div className="text-xs font-mono bg-gray-50 p-3 rounded border border-gray-200 text-gray-600">
+                    EMP ID | EMPLOYEE NAME | DESIGNATION | DOJ(date) | VISA EXPIRY DATE | LABOUR CARD EXP DATE | HEALTH CARD EXP DATE
+                </div>
             </div>
         </div>
       </div>
