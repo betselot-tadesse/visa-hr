@@ -88,8 +88,15 @@ export const AiAssistant: React.FC = () => {
       6. Do not make up information.
       `;
 
-      // 2. Call Gemini API - create instance just before call to ensure fresh key
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      // 2. Call Gemini API - Safely access process.env
+      // Check if process is defined (browser safety)
+      const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : undefined;
+      
+      if (!apiKey) {
+          throw new Error("API Key not found in environment. Please select a key.");
+      }
+
+      const ai = new GoogleGenAI({ apiKey });
       
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -109,8 +116,8 @@ export const AiAssistant: React.FC = () => {
     } catch (error: any) {
       console.error("AI Error:", error);
       
-      if (error.message?.includes("Requested entity was not found") || error.toString().includes("404")) {
-          setMessages(prev => [...prev, { role: 'model', text: "It looks like the API key is invalid or expired. Please select a key again." }]);
+      if (error.message?.includes("Requested entity was not found") || error.toString().includes("404") || error.message?.includes("API Key not found")) {
+          setMessages(prev => [...prev, { role: 'model', text: "It looks like the API key is missing or invalid. Please select a key." }]);
           setHasApiKey(false);
       } else {
           setMessages(prev => [...prev, { role: 'model', text: "Sorry, I encountered an error connecting to the AI service. Please check your connection." }]);

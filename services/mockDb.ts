@@ -14,7 +14,12 @@ const computeEmployeeStatus = (e: Omit<Employee, 'status'>): VisaStatus => {
 
 // Initial Seeder Data
 const seedData = () => {
-  if (localStorage.getItem(EMPLOYEES_KEY)) return;
+  try {
+      if (localStorage.getItem(EMPLOYEES_KEY)) return;
+  } catch (e) {
+      console.error("Storage access error", e);
+      return;
+  }
 
   const today = new Date();
   
@@ -86,8 +91,12 @@ const seedData = () => {
       status: computeEmployeeStatus(e)
   }));
 
-  localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(processedEmployees));
-  runNotificationCheck(); // Generate initial notifications
+  try {
+    localStorage.setItem(EMPLOYEES_KEY, JSON.stringify(processedEmployees));
+    runNotificationCheck(); // Generate initial notifications
+  } catch(e) {
+      console.error("Failed to seed data", e);
+  }
 };
 
 export const runNotificationCheck = () => {
@@ -143,7 +152,11 @@ export const runNotificationCheck = () => {
   });
 
   if (newNotifications.length > 0) {
-    localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify([...newNotifications, ...notifications]));
+    try {
+        localStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify([...newNotifications, ...notifications]));
+    } catch(e) {
+        console.error("Failed to save notifications", e);
+    }
   }
   localStorage.setItem(LAST_CHECK_KEY, new Date().toISOString());
 };
@@ -151,13 +164,20 @@ export const runNotificationCheck = () => {
 // CRUD Operations
 
 export const getEmployees = (): Employee[] => {
-  const data = localStorage.getItem(EMPLOYEES_KEY);
-  const employees: Employee[] = data ? JSON.parse(data) : [];
-  // Recalculate status on fetch to ensure freshness
-  return employees.map(e => ({
-    ...e,
-    status: computeEmployeeStatus(e)
-  })).sort((a, b) => new Date(a.visaExpiryDate).getTime() - new Date(b.visaExpiryDate).getTime());
+  try {
+      const data = localStorage.getItem(EMPLOYEES_KEY);
+      const employees: Employee[] = data ? JSON.parse(data) : [];
+      // Recalculate status on fetch to ensure freshness
+      return employees.map(e => ({
+        ...e,
+        status: computeEmployeeStatus(e)
+      })).sort((a, b) => new Date(a.visaExpiryDate).getTime() - new Date(b.visaExpiryDate).getTime());
+  } catch (error) {
+      console.error("Failed to load employees, resetting data", error);
+      // Fallback: clear bad data
+      localStorage.removeItem(EMPLOYEES_KEY);
+      return [];
+  }
 };
 
 export const getEmployee = (id: string): Employee | undefined => {
@@ -213,8 +233,13 @@ export const deleteEmployee = (id: string) => {
 };
 
 export const getNotifications = (): Notification[] => {
-  const data = localStorage.getItem(NOTIFICATIONS_KEY);
-  return data ? JSON.parse(data) : [];
+  try {
+      const data = localStorage.getItem(NOTIFICATIONS_KEY);
+      return data ? JSON.parse(data) : [];
+  } catch (e) {
+      console.error("Failed to load notifications", e);
+      return [];
+  }
 };
 
 export const markNotificationRead = (id: string) => {

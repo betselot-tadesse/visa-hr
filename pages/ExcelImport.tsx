@@ -206,10 +206,10 @@ export const ExcelImport: React.FC = () => {
             employeeId: String(empId),
             passportNumber: passport ? String(passport) : undefined,
             visaType: String(visaType || 'Employment'),
-            visaIssueDate: visaIssue!,
-            visaExpiryDate: visaExpiry!,
-            healthCardExpiryDate: healthExpiry!,
-            labourCardExpiryDate: labourExpiry!,
+            visaIssueDate: visaIssue || '', // Safe fallback string
+            visaExpiryDate: visaExpiry || '', 
+            healthCardExpiryDate: healthExpiry || '',
+            labourCardExpiryDate: labourExpiry || '',
         });
         existingEmployeeIds.add(String(empId));
         inserted++;
